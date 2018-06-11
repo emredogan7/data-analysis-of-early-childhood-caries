@@ -1,0 +1,920 @@
+---
+title: "IS580 - Term Project"
+author: "Ahmet Kuzubasli (1674431), Emre Dogan (2093656), Tayfun Eylen (1626183)"
+date: "6/2/2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+### Load Required Packages
+First, we load all of required packages in this project at once. This allowed the project partners to load and work on the same versions of the packages.
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+list.of.packages <- c("ggplot2", "corrplot", "beanplot", "car", "gridExtra", "e1071", "randomForest", "class", "caret", "ade4", "data.table", "glmnet", "tseries", "forecast", "Hmisc", "Amelia", "arules", "foreign","ggplot2","gridExtra","knitr", "fpc", "factoextra", "neuralnet" )
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages, repos = "http://cran.us.r-project.org")
+lapply(list.of.packages, require, character.only=TRUE)
+```
+
+## 1. Dataset and Introduction
+We have choosen ECC dataset because it is about healthcare in what we are more professionally interested. 
+
+**Objective:** Early childhood caries (ECC) is a potentially severe disease affecting children all over the world [1]. The available ﬁndings are mostly based on a logistic regressionmodel, but data mining could be used to extract moreinformation from the same data set. In the paper, authors implement association rule mining for interpretability. While interpretability of the model is important, we seek other methods for classification and clustering with better performance.
+
+Secondly, we import the training, test and validation splits of ECC datasets.
+
+## 2. Descriptrive Statistics
+
+```{r read-data}
+#READ DATA
+TRAIN = read.csv("./ECC_train.csv")
+VALIDATION = read.csv("./ECC_validation.csv")
+TEST = read.csv("./ECC_test.csv")
+```
+
+```{r 2_summary, message=FALSE, warning=FALSE}
+
+## 3. Classification Methods
+options(knitr.kable.NA = '')
+#summary of the dataset gives us the brief information.
+kable(summary(TRAIN)) 
+```
+
+- It can be seen that all the attributes except the "CITY" have numerical distribution. 
+
+- Three attributes have thair maximum values as '999'. This value is meaningless and gives the 'NA' attribute. These '999' values may correspond to problems and should be considered as missing data and be replaced.
+
+- Most of the data corresponds to ordinal data and should be considered as so. They will be converted with 'ordered()' function.
+
+
+```{r 2_histogramOfAttr, message=FALSE, warning=FALSE}
+for (col in 2:ncol(TRAIN)) {
+  hist(TRAIN[,col], main = paste("Histogram of", colnames(TRAIN)[col]))
+}
+```
+
+
+- All the distributions of attributes are observed and the problems with the attributes having '999' values are observed. 
+
+- Most of the attributes have ordinal characteristics and very few classes. This situation can be observed from the histograms.
+
+
+```{r 2_qqPlots, results='hide', message=FALSE, warning=FALSE}
+for (col in 2:ncol(TRAIN)) {
+  qqnorm(TRAIN[,col], main = paste("Normal QQ Plot of ",colnames(TRAIN)[col])); qqline(TRAIN[,col])
+}
+```
+
+- The Q-Q plots give a strong idea about the closeness of an attribute to the normal one. If the data is normally distributed, the points in the QQ-normal plot lie on a straight diagonal line. 
+
+- As most of our data is type of nominal, it is not expected to have a normal data distribution in attributes. But still, It is possible to observe the dsitribution of nominal data labels in these Q-Q plots.
+
+
+## Descriptive Location Measures for Each of the Numerical Attributes
+
+### Geometric Mean: 
+- We already achieved mean and median values of each attributes with summary() command.
+- Besides that, geometric mean is an important measure of the central tendency.
+
+
+```{r 2_geomean,  message=FALSE, warning=FALSE}
+geomean = matrix(0,36,1)
+for (col in 2:ncol(TRAIN)) {
+  geomean[col] = exp(mean(log(TRAIN[,col])))	
+}
+#geomean
+geomean_vector <- data.frame(geomean)
+row.names(geomean_vector) <- colnames(TRAIN)
+kable(geomean_vector,row.names = TRUE)
+```
+
+
+Besides the central tendency, the fact that how closely the data fall about the center is another issue. We need to figure out the spread pattern around the center.
+
+
+### Range:
+  
+```{r 2_range, message=FALSE, warning=FALSE}
+rangeVector = matrix(0,36,1)
+for (col in 2:ncol(TRAIN)) {
+  rangeVector[col] = max(TRAIN[,col], na.rm = TRUE)-min(TRAIN[,col], na.rm = TRUE)	
+}
+
+range_Vector <- data.frame(rangeVector)
+row.names(range_Vector) <- colnames(TRAIN)
+kable(range_Vector,row.names = TRUE)
+
+```
+
+
+
+### Interquantile Range 
+
+```{r 2_iqr,   message=FALSE, warning=FALSE}
+iqc = matrix(0,36,1)
+for (col in 2:ncol(TRAIN)) {
+  iqc[col] = IQR(TRAIN[,col])	
+}
+
+iqr_vector <- data.frame(iqc)
+row.names(iqr_vector) <- colnames(TRAIN)
+kable(iqr_vector, row.names = TRUE)
+```
+
+
+### Variance
+
+```{r variance,  message=FALSE, warning=FALSE}
+variance = matrix(0,36,1)
+
+for (col in 2:ncol(TRAIN)) {
+  variance[col] = var(TRAIN[,col])		
+}
+var_vector <- data.frame(variance)
+row.names(var_vector) <- colnames(TRAIN)
+kable(var_vector, row.names = TRUE)
+```
+
+
+### Coefficient of Variance
+
+```{r   message=FALSE, warning=FALSE}
+CV = matrix(0,36,1)
+for (col in 2:ncol(TRAIN)) {
+  CV[col] = sd(TRAIN[,col], na.rm=TRUE)/mean(TRAIN[,col], na.rm=TRUE)*100		
+}
+CV_vector <- data.frame(CV)
+row.names(CV_vector) <- colnames(TRAIN)
+kable(CV_vector, row.names = TRUE)
+```
+
+- Coefficient of variance is a better parameter to see the behaviour of the data. Because it gives more logical results in the attributes with different scales.
+
+
+### Correlation & Covariance
+
+- Correlation and Covariance matrixes will be very helpful in our Feature Selection process. It is not wise to use two highly correlated attributes in the same model. Because, this situation would result with overfitting problems.
+
+
+```{r 2_Correlation,   message=FALSE, warning=FALSE}
+options(knitr.kable.NA = '')
+NUM=data.frame(TRAIN[2:36])
+
+# correlations/covariance
+kable(cov(NUM))
+kable(cor(NUM))
+```
+
+
+### Box Plots Dealing with Outliers
+
+
+To be able to have an idea about the outliers, we should plot boxplots of the numerical attributes.
+
+```{r  boxPlot, message=FALSE, warning=FALSE}
+for (col in 2:ncol(TRAIN)) {
+  boxplot(TRAIN[,col],main=paste("Boxplot of the",colnames(TRAIN)[col] ))
+}
+
+```
+
+- All the boxplots were observed to have an opinion the outliers and their affects on the dataset analysis.
+
+
+
+
+
+## 3. Classification Methods 
+
+```{r 3. pre_process}
+library(ade4)
+library(data.table)
+
+#COMBINE ALL DATA TO HAVE CONSISTENT 
+ALL_DATA <- rbind(TRAIN, VALIDATION, TEST)
+ALL_DATA_x <- ALL_DATA[,1:35]
+ALL_DATA_y <- ALL_DATA[36]
+
+#APPLY ONE HOT METHOD TO CATEGORICAL AND NULL(999) INVOLVING FEATURES
+col_names <- c("CITY", "CHILD_ETHNICITY", "MOTHER_ETHNICITY", "BREASTFEEDING_FREQUENCY", "BREASTFEEDING_DURING_NIGHT", "MOTHER_EMPLOYMENT_STATUS")
+for (f in col_names){
+  df_all_dummy = acm.disjonctif(ALL_DATA_x[f])
+  ALL_DATA_x[f] = NULL
+  ALL_DATA_x = cbind(ALL_DATA_x, df_all_dummy)
+}
+
+#DELETE .999 FEATURES
+col_names999 <- c("MOTHER_ETHNICITY.999", "BREASTFEEDING_FREQUENCY.999", "BREASTFEEDING_DURING_NIGHT.999")
+for (f in col_names999){
+  ALL_DATA_x[f] = NULL
+}
+
+
+
+#NORMALIZATION FUNCTION
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+#APPLY NORMALIZATION
+ALL_DATA_x <- as.data.frame(lapply(ALL_DATA_x, normalize))
+```
+
+
+For ordered data
+
+
+```{r 2 ordered}
+ALL_DATA_x_o = ALL_DATA[,1:35]
+
+factor_vars = c("CITY", "CHILD_ETHNICITY", "CHILD_GENDER", "MOTHER_SERBIAN_LANGUAGE", 
+                "CHILD_SERBIAN_LANGUAGE", "MARITAL_STATUS", "MOTHER_ETHNICITY")
+ordered_vars = c("CHILD_AGE", "MOTHER_AGE", "BIRTH_ORDER", 
+                "MOTHER_EDUCATION_LEVEL", "MOTHER_EMPLOYMENT_STATUS", "QUALITY_OF_HOUSING",
+                "HOUSING_CONDITIONS", "HOUSEHOLD_MONTHLY_INCOME", 
+                "BIRTH_WEIGHT", "BREASTFEEDING", "BREASTFEEDING_DURING_NIGHT",
+                "BOTTLE_FEEDING", "INFANT_FORMULAS", "ADDITIONAL_FOOD_SWEETENING",
+                "CHILD_FLUORIDE_SUPPLEMENTS", "CHILD_FLUORIDE_TOOTHPASTE", "CHILD_ORAL_HYGIENE",
+                "CHILD_TOOTH_BRUSHING", "DIARRHEA_DURING_INFANCY", "MEDICAL_SYRUPS",
+                "CHILD_FIRST_DENTIST_VISIT", "SWEETS_DURING_PREGNANCY",
+                "FLUORIDE_SUPPLEMENTS_DURING_PREGNANCY", "ORAL_HEALTH_DURING_PREGNANCY",
+                "MOTHER_HEALTH_AWARENESS", "FATHER_HEALTH_AWARENESS")
+
+#ORDERED
+for (var in ordered_vars) ALL_DATA_x_o[,var] = ordered(ALL_DATA_x_o[,var])
+for (var in factor_vars) ALL_DATA_x_o[,var] = factor(ALL_DATA_x_o[,var])
+
+#APPLY ONE HOT METHOD TO CATEGORICAL AND NULL(999) INVOLVING FEATURES
+col_names <- c("CITY", "CHILD_ETHNICITY", "MOTHER_ETHNICITY", "BREASTFEEDING_FREQUENCY", "BREASTFEEDING_DURING_NIGHT", "MOTHER_EMPLOYMENT_STATUS")
+for (f in col_names){
+  df_all_dummy = acm.disjonctif(ALL_DATA_x_o[f])
+  ALL_DATA_x_o[f] = NULL
+  ALL_DATA_x_o = cbind(ALL_DATA_x_o, df_all_dummy)
+}
+
+#DELETE .999 FEATURES
+col_names999 <- c("MOTHER_ETHNICITY.999", "BREASTFEEDING_FREQUENCY.999", "BREASTFEEDING_DURING_NIGHT.999")
+for (f in col_names999){
+  ALL_DATA_x_o[f] = NULL
+}
+
+
+```
+
+### 3.1. Association Rule Mining (implemented on the paper)
+
+```{r 3.1 Assoc}
+
+col_names <- colnames(TRAIN)
+TRAIN_factor <- as.data.frame(lapply(TRAIN[,col_names], factor))
+
+rules1 <- apriori(TRAIN_factor, appearance = list(rhs=c("ECC=1"), default="lhs"), parameter = list(minlen=2, maxlen=7, sup = 0.1, conf = 0.4, target="rules"))
+rules1<-sort(rules1, decreasing=TRUE, by="confidence")
+#inspect(rules1)
+
+rules2 <- apriori(TRAIN_factor, appearance = list(rhs=c("ECC=2"), default="lhs"), parameter = list(minlen=2, maxlen=7, sup = 0.3, conf = 0.8, target="rules"))
+rules2<-sort(rules2, decreasing=TRUE, by="confidence")
+#inspect(rules2)
+```
+
+#### Justification for Model Parameters
+
+- "rules1" is the rules obtained from the data set having ECC value of 1 at the right hand side with support value 0.1 and confidance value 0.4.
+
+- "rules2" is the rules obtained from the data set having ECC value of 2 at the right hand side with support value 0.3 and confidance value 0.8.
+
+- ECC dataset is unbalanced. As a result, when both ECC values are kept and rules are generated, dense part, which have ECC value of 2, dominates all obtained rules. When support and confidance values are kept low to obtain rules for both ECC values, Number of rules becomes a very large number. With above parameters, ~250 rules are generated for ECC=2 and ~120 rules are generated for ECC=1.
+
+### 3.2. SVM
+```{r 3.2 SVM}
+
+#SEPARATE TRAIN, VALIDATION AND TEST
+TRAIN_conv_x <- ALL_DATA_x[1:239,]
+VALIDATION_conv_x <- ALL_DATA_x[240:273,]
+TEST_conv_x <- ALL_DATA_x[274:341,]
+
+TRAIN_y <- TRAIN[,36]
+TRAIN_y <- as.factor(TRAIN_y)
+VALIDATION_y <- VALIDATION[,36]
+VALIDATION_y <- as.factor(VALIDATION_y)
+TEST_y <- TEST[,36]
+TEST_y <- as.factor(TEST_y)
+
+#POSSIBLE COST AND GAMMA VALUES
+cost_try = c(0.1, 0.5, 1, 5, 10, 20, 50, 80, 100, 500)
+gamma_try = c(0.005, 0.01, 0.02, 0.05, 0.1, 0.5, 1, 2, 5, 10)
+
+#BEST COST AND GAMMA VALUES SELECTED ACCORDING TO ACCURACY
+max_accur = 0
+best_cost = 1
+best_gamma = 1
+best_cost_index = 1
+best_gamma_index = 1
+svm_acc_res = matrix(0, 10, 10)
+svm_sens_res = matrix(0, 10, 10)
+svm_spec_res = matrix(0, 10, 10)
+for (i in 1:10)
+{
+  for (j in 1:10)
+  {
+    svm_model <- svm(x = TRAIN_conv_x, y = TRAIN_y, gamma = gamma_try[j], cost = cost_try[i])
+    svm_res <- predict(svm_model, VALIDATION_conv_x)
+    conf_res <- confusionMatrix(svm_res, VALIDATION_y)
+    
+    if (max_accur < conf_res$overall[1])
+    {
+      max_accur = conf_res$overall[1]
+      best_cost = cost_try[i]
+      best_gamma = gamma_try[j]
+      best_cost_index = i
+      best_gamma_index = i
+      print(conf_res$overall[1])
+    }
+    
+    svm_acc_res[i,j] = conf_res$overall[1]
+    svm_sens_res[i,j] = conf_res$byClass[1]
+    svm_spec_res[i,j] = conf_res$byClass[2]
+  }
+}
+
+#BEST VALUES PRINTED
+print(best_cost)
+print(best_gamma)
+
+#ACCURACY, SENSITIVITY AND SPECITIVITY are plotted
+plot(gamma_try, svm_acc_res[best_cost_index, ], type = "b", main = "SVM ACCURACY", xlab = "GAMMA VALUE", ylab = "ACCURACY")
+plot(cost_try, svm_acc_res[ , best_gamma_index], type = "b", main = "SVM ACCURACY", xlab = "COST VALUE", ylab = "ACCURACY")
+plot(gamma_try, svm_sens_res[best_cost_index, ], type = "b", main = "SVM SENSITIVITY", xlab = "GAMMA VALUE", ylab = "SENSITIVITY")
+plot(cost_try, svm_sens_res[ , best_gamma_index], type = "b", main = "SVM SENSITIVITY", xlab = "COST VALUE", ylab = "SENSITIVITY")
+plot(gamma_try, svm_spec_res[best_cost_index, ], type = "b", main = "SVM SPECITIVITY", xlab = "GAMMA VALUE", ylab = "SPECITIVITY")
+plot(cost_try, svm_spec_res[ , best_gamma_index], type = "b", main = "SVM SPECITIVITY", xlab = "COST VALUE", ylab = "SPECITIVITY")
+
+#TEST DATASET IS PREDICTED AND RESULTS ARE DISPLAYED
+svm_model <- svm(x = TRAIN_conv_x, y = TRAIN_y, gamma = best_gamma, cost = best_cost)
+svm_res <- predict(svm_model, TEST_conv_x)
+conf_res <- confusionMatrix(svm_res, TEST_y)
+print(conf_res)
+```
+
+#### Justification for Model Parameters
+
+- For the SVM model, Cost is how much we penalize the SVM for data points within the margin. If we decrease the cost, the error rate would increase where the margin gets larger. Gamma defines how far the influence of single training example reaches.
+
+- If the value of Gamma is high, then our decision boundary will depend on points close to the decision boundary and nearer points carry more weights than far away points due to which our decision boundary becomes more wiggly.
+
+- If the value of Gamma is low, then far away points carry more weights than nearer points and thus our decision boundary becomes more like a straight line.
+
+- The value of gamma and C should not be very high because it leads to the overfitting or it shouldn’t be very small (underfitting). Thus we need to choose the optimal value of C and Gamma in order to get a good fit. In our case, different costs and Gamma values were tried an adjusted for the best performance.
+
+### 3.3. KNN
+
+```{r 3.3 KNN}
+
+#SEPARATE TRAIN, VALIDATION AND TEST
+TRAIN_conv_x <- ALL_DATA_x[1:239,]
+VALIDATION_conv_x <- ALL_DATA_x[240:273,]
+TEST_conv_x <- ALL_DATA_x[274:341,]
+
+TRAIN_y <- TRAIN[,36]
+TRAIN_y <- as.factor(TRAIN_y)
+VALIDATION_y <- VALIDATION[,36]
+VALIDATION_y <- as.factor(VALIDATION_y)
+TEST_y <- TEST[,36]
+TEST_y <- as.factor(TEST_y)
+
+#BEST K VALUE IS SELECTED ACCORDING TO ACCURACY
+max_accur = 0
+best_k_val = 1
+knn_acc_res = vector()
+knn_sens_res = vector()
+knn_spec_res = vector()
+for (i in 1:100)
+{
+  test_pred <- knn(train = TRAIN_conv_x, test = VALIDATION_conv_x, cl = TRAIN_y, k=i)
+  conf_res <- confusionMatrix(test_pred, VALIDATION_y)
+  
+  if (max_accur < conf_res$overall[1])
+  {
+    max_accur = conf_res$overall[1]
+    best_k_val = i
+    print(conf_res$overall[1])
+  }
+  
+  knn_acc_res[i] = conf_res$overall[1]
+  knn_sens_res[i] = conf_res$byClass[1]
+  knn_spec_res[i] = conf_res$byClass[2]
+}
+
+#BEST VALUES PRINTED
+print(best_k_val)
+
+#ACCURACY, SENSITIVITY AND SPECITIVITY are plotted
+plot(1:100, knn_acc_res, type = "b", main = "KNN ACCURACY", xlab = "NUMBER OF NN", ylab = "ACCURACY")
+plot(1:100, knn_sens_res, type = "b", main = "KNN SENSITIVITY", xlab = "NUMBER OF NN", ylab = "SENSITIVITY")
+plot(1:100, knn_spec_res, type = "b", main = "KNN SPECITIVITY", xlab = "NUMBER OF NN", ylab = "SPECITIVITY")
+
+#TEST DATASET IS PREDICTED AND RESULTS ARE DISPLAYED
+test_pred <- knn(train = TRAIN_conv_x, test = TEST_conv_x, cl = TRAIN_y, k=best_k_val)
+conf_res <- confusionMatrix(test_pred, TEST_y)
+print(conf_res)
+```
+
+We also try KNN on the ordered dataset. 
+
+```{r 3.3 KNN ordered}
+
+#SEPARATE TRAIN, VALIDATION AND TEST
+TRAIN_conv_x <- ALL_DATA_x_o[1:239,]
+VALIDATION_conv_x <- ALL_DATA_x_o[240:273,]
+TEST_conv_x <- ALL_DATA_x_o[274:341,]
+
+TRAIN_y <- TRAIN[,36]
+TRAIN_y <- as.factor(TRAIN_y)
+VALIDATION_y <- VALIDATION[,36]
+VALIDATION_y <- as.factor(VALIDATION_y)
+TEST_y <- TEST[,36]
+TEST_y <- as.factor(TEST_y)
+
+#BEST K VALUE IS SELECTED ACCORDING TO ACCURACY
+max_accur = 0
+best_k_val = 1
+knn_acc_res = vector()
+knn_sens_res = vector()
+knn_spec_res = vector()
+for (i in 1:100)
+{
+  test_pred <- knn(train = TRAIN_conv_x, test = VALIDATION_conv_x, cl = TRAIN_y, k=i)
+  conf_res <- confusionMatrix(test_pred, VALIDATION_y)
+  
+  if (max_accur < conf_res$overall[1])
+  {
+    max_accur = conf_res$overall[1]
+    best_k_val = i
+    print(conf_res$overall[1])
+  }
+  
+  knn_acc_res[i] = conf_res$overall[1]
+  knn_sens_res[i] = conf_res$byClass[1]
+  knn_spec_res[i] = conf_res$byClass[2]
+}
+
+#BEST VALUES PRINTED
+print(best_k_val)
+
+#ACCURACY, SENSITIVITY AND SPECITIVITY are plotted
+plot(1:100, knn_acc_res, type = "b", main = "KNN ACCURACY", xlab = "NUMBER OF NN", ylab = "ACCURACY")
+plot(1:100, knn_sens_res, type = "b", main = "KNN SENSITIVITY", xlab = "NUMBER OF NN", ylab = "SENSITIVITY")
+plot(1:100, knn_spec_res, type = "b", main = "KNN SPECITIVITY", xlab = "NUMBER OF NN", ylab = "SPECITIVITY")
+
+#TEST DATASET IS PREDICTED AND RESULTS ARE DISPLAYED
+test_pred <- knn(train = TRAIN_conv_x, test = TEST_conv_x, cl = TRAIN_y, k=best_k_val)
+conf_res <- confusionMatrix(test_pred, TEST_y)
+print(conf_res)
+```
+
+#### Justification for Model Parameters
+
+- For the KNN model, the most and only important parameter is the 'k value'.  it looks through the training data and finds the k training examples that are closest to the new example. It then assigns the most common class label (among those k training examples) to the test example. 
+
+- When the data is directly fed to the model, we observed that k=1 gives the best results within all k values. Normally, k=1 might show the appearance of overfitting. But in our case, it does not. As our class labels are nominal and have small number of types, 1-NN does not directly show overfitting.
+
+- Also, we tried this model for the ordered (nominal) dataset. The optimal k value is not 1 but equal to 39 in this case. But the accuracy result did not change surprisingly.
+
+
+
+### 3.4. Naive Bayesian
+
+```{r 3.4 nb}
+
+#SEPARATE TEST
+TEST_conv_x <- ALL_DATA_x[274:341,]
+TEST_y <- TEST[,36]
+TEST_y <- as.factor(TEST_y)
+
+#VALIDATION COMBINED WITH TRAIN
+TV_conv_x <- ALL_DATA_x[1:273,]
+TV_y <- c(TRAIN_y, VALIDATION_y)
+TV_y <- as.factor(TV_y)
+
+#BECAUSE OF NO PARAMETER SELECTION, NB APPLIED DIRECTLY
+nb_model <- naiveBayes(x = TV_conv_x, y = TV_y, laplace = laplace)
+nb_res <- predict(nb_model, TEST_conv_x)
+conf_res <- confusionMatrix(nb_res, TEST_y)
+print(conf_res)
+```
+
+#### Justification for Model Parameters
+
+- Naive Bayesian is the simplest classification algorithm we used. And it does not have any special parameters to be justified. From the results, this model gives low accuracy and high sensitivity.
+
+
+### 3.5. Random Forest
+
+```{r 3.5 RF, }
+
+#SEPARATE TRAIN, VALIDATION AND TEST
+TRAIN_conv_x <- ALL_DATA_x[1:239,]
+VALIDATION_conv_x <- ALL_DATA_x[240:273,]
+TEST_conv_x <- ALL_DATA_x[274:341,]
+
+TRAIN_y <- TRAIN[,36]
+TRAIN_y <- as.factor(TRAIN_y)
+VALIDATION_y <- VALIDATION[,36]
+VALIDATION_y <- as.factor(VALIDATION_y)
+TEST_y <- TEST[,36]
+TEST_y <- as.factor(TEST_y)
+
+#BEST NTREE VALUE IS SELECTED ACCORDING TO ACCURACY
+max_accur = 0
+res_num_of_tree = 0
+num_of_tree = 16
+rf_acc_res = vector()
+rf_sens_res = vector()
+rf_spec_res = vector()
+for (i in 1:7)
+{
+  set.seed(97)
+  
+  rf_model <- randomForest(x = TRAIN_conv_x, y = TRAIN_y, ntree = num_of_tree)
+  rf_res <- predict(rf_model, VALIDATION_conv_x)
+  rf_res_round <- as.factor(round(as.numeric(rf_res)))
+  conf_res <- confusionMatrix(rf_res_round, VALIDATION_y)
+  
+  if (conf_res$overall[1] > max_accur)
+  {
+    max_accur = conf_res$overall[1]
+    res_num_of_tree = num_of_tree
+    print(conf_res$overall[1])
+  }
+  
+  rf_acc_res[i] = conf_res$overall[1]
+  rf_sens_res[i] = conf_res$byClass[1]
+  rf_spec_res[i] = conf_res$byClass[2]
+  
+  num_of_tree = num_of_tree*2
+}
+
+#BEST VALUES PRINTED
+print(res_num_of_tree)
+plot(2^(4:10), rf_acc_res, type = "b", main = "RF ACCURACY", xlab = "NUMBER OF TREE", ylab = "ACCURACY")
+plot(2^(4:10), rf_sens_res, type = "b", main = "RF SENSITIVITY", xlab = "NUMBER OF TREE", ylab = "SENSITIVITY")
+plot(2^(4:10), rf_spec_res, type = "b", main = "RF SPECITIVITY", xlab = "NUMBER OF TREE", ylab = "SPECITIVITY")
+
+#TEST DATASET IS PREDICTED AND RESULTS ARE DISPLAYED
+set.seed(97)
+rf_res_model <- randomForest(x = TRAIN_conv_x, y = TRAIN_y, ntree = res_num_of_tree)
+rf_res <- predict(rf_model, TEST_conv_x)
+rf_res_round <- as.factor(round(as.numeric(rf_res)))
+conf_res <- confusionMatrix(rf_res_round, TEST_y)
+print(conf_res)
+```
+
+The same model applied to the ordered dataset.
+
+```{r 3.5 RF_o, }
+
+#SEPARATE TRAIN, VALIDATION AND TEST
+TRAIN_conv_x <- ALL_DATA_x_o[1:239,]
+VALIDATION_conv_x <- ALL_DATA_x_o[240:273,]
+TEST_conv_x <- ALL_DATA_x_o[274:341,]
+
+TRAIN_y <- TRAIN[,36]
+TRAIN_y <- as.factor(TRAIN_y)
+VALIDATION_y <- VALIDATION[,36]
+VALIDATION_y <- as.factor(VALIDATION_y)
+TEST_y <- TEST[,36]
+TEST_y <- as.factor(TEST_y)
+
+#BEST NTREE VALUE IS SELECTED ACCORDING TO ACCURACY
+max_accur = 0
+res_num_of_tree = 0
+ntrees = seq(2:1000:10)
+for (i in ntrees)
+{
+  set.seed(97)
+  
+  rf_model <- randomForest(x = TRAIN_conv_x, y = TRAIN_y, ntree = i)
+  rf_res <- predict(rf_model, VALIDATION_conv_x)
+  rf_res_round <- as.factor(round(as.numeric(rf_res)))
+  conf_res <- confusionMatrix(rf_res_round, VALIDATION_y)
+  
+  if (conf_res$overall[1] > max_accur)
+  {
+    max_accur = conf_res$overall[1]
+    res_num_of_tree = num_of_tree
+    print(conf_res$overall[1])
+  }
+}
+
+#BEST VALUES PRINTED
+print(res_num_of_tree)
+
+#TEST DATASET IS PREDICTED AND RESULTS ARE DISPLAYED
+set.seed(97)
+rf_res_model <- randomForest(x = TRAIN_conv_x, y = TRAIN_y, ntree = res_num_of_tree)
+rf_res <- predict(rf_model, TEST_conv_x)
+rf_res_round <- as.factor(round(as.numeric(rf_res)))
+conf_res <- confusionMatrix(rf_res_round, TEST_y)
+print(conf_res)
+```
+
+#### Justification for Model Parameters
+
+- The most important parameter for this model is the number of tress. This parameter is tried for different values and with the performance comparison, it is justified. 
+
+- Notice that When the data is not considered as nominal for the necessary attributes and given to the model directly, the number of tree parameter is equal to 64. But when we preprocess the data to specify its type, this parameter becomes 2048. There is a trade-off situation where increasing 'number of tree' parameter gives better accuracy but wastes more space in the memory.
+
+
+### 3.6. ANN
+
+```{r 3.6 ANN }
+library(neuralnet)
+
+TRAIN_conv_x <- ALL_DATA_x[1:239,]
+VALIDATION_conv_x <- ALL_DATA_x[240:273,]
+TEST_conv_x <- ALL_DATA_x[274:341,]
+TRAIN_y <- TRAIN[,36]
+TRAIN_y <- TRAIN_y - 1
+VALIDATION_y <- VALIDATION[,36]
+VALIDATION_y <- as.factor(VALIDATION_y-1)
+TEST_y <- TEST[,36]
+TEST_y <- as.factor(TEST_y - 1)
+
+train_data <- data.frame(TRAIN_conv_x, TRAIN_y) 
+col_names = colnames(train_data)
+for (i in col_names)
+{
+  train_data[,i] <- as.numeric(train_data[,i])
+}
+col_names = colnames(TRAIN_conv_x)
+formula_asd <- as.formula(paste("TRAIN_y ~ ", paste(col_names, collapse = "+")))
+
+VALIDATION_conv_x_nn <- VALIDATION_conv_x
+col_names = colnames(VALIDATION_conv_x_nn)
+for (i in col_names)
+{
+  VALIDATION_conv_x_nn[,i] <- as.numeric(VALIDATION_conv_x_nn[,i])
+}
+
+TEST_conv_x_nn <- TEST_conv_x
+col_names = colnames(TEST_conv_x_nn)
+for (i in col_names)
+{
+  TEST_conv_x_nn[,i] <- as.numeric(TEST_conv_x_nn[,i])
+}
+
+nn_result_f <- function(x) {
+  ret_val = 0
+  if ( x >= 0.5 )
+  {
+    ret_val <- 1
+  }
+  else 
+  {
+    ret_val <- 0
+  }
+  return (ret_val)
+}
+
+max_accur = 0
+best_l1_num = 1
+best_th = 1
+best_th_index = 1
+ann_acc_res = matrix(0, 20, 5)
+ann_sens_res = matrix(0, 20, 5)
+ann_spec_res = matrix(0, 20, 5)
+for (i in 1:20)
+{
+  for (j in 1:5)
+  {
+    nn_model <- neuralnet(formula_asd, data=train_data, linear.output = TRUE, hidden=c(i,1), threshold=0.01*j)
+    nn_res <- compute(nn_model, VALIDATION_conv_x_nn)$net.result
+    nn_res <- as.numeric(lapply(nn_res, nn_result_f))
+
+      nn_res <- as.factor(nn_res)
+      conf_res <- confusionMatrix(nn_res, VALIDATION_y)
+      if (max_accur < conf_res$overall[1])
+      {
+        max_accur = conf_res$overall[1]
+        
+        best_l1_num = i
+        best_th = 0.01*j
+        best_th_index = j
+        
+        print(conf_res$overall[1])
+      }
+      
+    ann_acc_res[i,j] = conf_res$overall[1]
+    ann_sens_res[i,j] = conf_res$byClass[1]
+    ann_spec_res[i,j] = conf_res$byClass[2]
+  }
+  print(i)
+}
+
+print(best_l1_num)
+print(best_th)
+
+plot((1:5)*0.01, ann_acc_res[best_l1_num, ], type = "b", main = "ANN ACCURACY", xlab = "THRESHOLD VALUE", ylab = "ACCURACY")
+plot(1:20, ann_acc_res[ , best_th_index], type = "b", main = "ANN ACCURACY", xlab = "NUM OF HIDDEN LAYER NEURONS", ylab = "ACCURACY")
+
+plot((1:5)*0.01, ann_sens_res[best_l1_num, ], type = "b", main = "ANN SENSITIVITY", xlab = "THRESHOLD VALUE", ylab = "SENSITIVITY")
+plot(1:20, ann_sens_res[ , best_th_index], type = "b", main = "ANN SENSITIVITY", xlab = "NUM OF HIDDEN LAYER NEURONS", ylab = "SENSITIVITY")
+
+plot((1:5)*0.01, ann_spec_res[best_l1_num, ], type = "b", main = "ANN SPECITIVITY", xlab = "THRESHOLD VALUE", ylab = "SPECITIVITY")
+plot(1:20, ann_spec_res[ , best_th_index], type = "b", main = "ANN SPECITIVITY", xlab = "NUM OF HIDDEN LAYER NEURONS", ylab = "SPECITIVITY")
+
+nn_model <- neuralnet(formula_asd, data=train_data, linear.output = TRUE, hidden=best_l1_num, threshold=best_th)
+nn_res <- compute(nn_model, TEST_conv_x_nn)$net.result
+nn_res <- as.numeric(lapply(nn_res, nn_result_f))
+nn_res <- as.factor(nn_res)
+
+conf_res <- confusionMatrix(nn_res, TEST_y)
+print(conf_res)
+```
+
+#### Justification for Model Parameters
+
+
+## 4. Clustering Methods
+### 4.1. K-means
+
+```{r 4.1_kmeans}
+# K-means on training Data
+X = ALL_DATA_x
+
+# Using the elbow method to find optimal number of clusters
+# Applying k-means to the dataset
+set.seed(13)
+kmeans = kmeans(X, 10, iter.max = 500)
+
+# Visualizing library
+# install.packages("cluster")
+library(cluster)
+clusplot(X,
+         kmeans$cluster,
+         lines = 0, # no line wanted
+         shade = TRUE, # shade depending on the denstiy
+         color = TRUE,
+         labels = 0,
+         plotchar = FALSE,
+         span = TRUE,
+         main = paste("Clusters of Data"),
+         xlab = "x-axis",
+         ylab = "y-axis")
+
+```
+
+
+#### Justification for K-means Parameters
+
+Initial configuration is fixed. We will run k-means for k = 1:10. vi. Plot error vs k to find optimal number of clusters by using the elbow method.
+
+```{r 4.1_optimalk}
+set.seed(123) 
+wcss = vector() # an empty vector
+for (i in 1:50) wcss[i] = sum(kmeans(X, i)$withinss)
+plot(1:50, wcss, type = "b", main = paste("Clusters"), xlab = "# Clusters", ylab = "Within Cluster SS")
+```
+
+
+### 4.2. Hierarchical Clustering
+
+In this section, we also apply hiearchical clustering. In order to understand with linkages work best for the well seperated data, we plot their dendrogram in a for loop. 
+As seen from the dendrograms, the best seperation is obtained when **warD** is used.
+
+
+```{r hWSlink}
+# 2.1. H-clust with different linkages
+X = ALL_DATA_x_o
+dend = list(list(),list(),list())
+meth = c("ward.D", "single", "average")
+names(dend) = meth
+# Using dendrogram to find the opt num of clusters
+for (i in 1:3) {
+  dend[i] = list(hclust(dist(X, method = "euclidean"), method = meth[i])) #dist.method: euc #agglom.method: ward
+  plot(dend[[i]],
+       main = paste("Dendrogram using", meth[i], sep = " " ), # title
+       xlab = "Points",
+       ylab = paste("Euclidean", "Distance", sep = " ")
+  )
+}
+
+# Fitting hierarchical clustering to the mall dataset with k = 4 (found using dendrogram)
+numClus = 2
+hc = hclust(dist(X, method = "euclidean"), method = "ward.D") # same function with different var.name
+y_hc = cutree(hc, k = numClus) # cut tree where num.groups is 4
+
+# Visualizing the clusters
+# install.packages("cluster")
+library(cluster)
+clusplot(X,
+         y_hc,
+         lines = 0, # cluster merkezleri arasi ?izgi
+         shade = TRUE,
+         color = TRUE,
+         labels = 1, # 1: labellanacak noktalari secip goster 2: hepsini goster
+         plotchar = FALSE,
+         span = TRUE, # cluster icini tarama
+         main = paste("Clusters of Well Seperated Data using ward.D"),
+         xlab = "X1",
+         ylab = "X2")
+clus_size = vector(length = numClus)
+for (i in 1:length(y_hc)) clus_size[y_hc[i]] = clus_size[y_hc[i]]+1 
+show(clus_size)
+```
+
+
+#### Justification for H-clustering Parameters
+
+For H-clustering parameters, we first plot the dendogram of the clusters. On this dendogram, we see the separation distance (length) of the linkages. Then, we find the cluster numbers by cutting the tree at maximum length point.as Fitting hierarchical clustering to the mall dataset with k = 5 (found using dendrogram)
+
+### 4.3. DB-SCAN Clustering
+```{r 4.3 dbscan}
+# Compute DBSCAN using fpc package
+library("fpc")
+set.seed(123)
+df = ALL_DATA_x
+db <- fpc::dbscan(df, eps = 2.6, MinPts = 3)
+# Plot DBSCAN results
+library("factoextra")
+fviz_cluster(db, data = df, stand = FALSE,
+             ellipse = FALSE, show.clust.cent = FALSE,
+             geom = "point",palette = "jco", ggtheme = theme_classic())
+```
+
+
+
+## 5. Comparison for Classification Models
+
+- For this dataset, We applied Associative Rule Mining and 5 different classification models. 
+
+When the parameters of all models have been set, the following accuracy results were achieved.
+
+  - Naive Bayesian: 0.48
+  - SVM: 0.72
+  - KNN: 0.69
+  - Random Forest: 0.75
+  - ANN (Artificial Neural Networks): 0.82
+
+From these models, Random Forest and ANN are the models giving the best accuracy results. From these two, ANN is harder to implement whereas Random Forest is a much easier model than the ANN. The problem with Random Forest is that in some cases, the number of trees may get larger and this leads to memory issues.
+
+- SVM and KNN gives midlevel results. They are also easy to implemen and adjust parameters.
+
+- Naive Bayesian cannot handle this dataset. This is clearly a failure.
+
+
+
+```{r 4.3 comparisonOfClass}
+#models <- c("ANN ","Random Forest", "SVM", "KNN", "Naive Bayesian")
+#accuracies <- c(0.82, 0.75, 0.72, 0.69, 0.48)
+
+```
+
+
+## 6. Comparison for Clustering Models
+
+Now, we compare our clustering models using *wcss* analysis. wcss is a vector of within-cluster sum of squares, one component per cluster.
+To do this, we begin with an empy wcss vectors and we calculate and sum within ss values of clusters by running the model with 100 different initial configurations.. We can view the sum of within cluster sum of squares error and look at indices with minimum error.
+
+```{r compare_wcss}
+wcss_k = vector() # an empty vector
+for (i in 1:100) {
+  set.seed(i*20)
+  wcss[i] = sum(kmeans(X, 10)$tot.withinss)
+} 
+plot(20*(1:100), wcss, type = "b", main = paste("Clusters"), xlab = "Initial Seed", ylab = "Within Cluster SS")
+
+which(wcss == min(wcss)) # initial conditions with minimum error
+insens_init = length(which(wcss == min(wcss)))/100
+insens_init
+```
+
+In the above analysis, we created kmeans models with different k values (from k=2 to k=10) and initialize them from different initialization points by manipulating the random seed. Then, we sum wcss for each time and compare them against to find insensitivity to initialization point.
+
+In our analysis, we have observed that increasing k-value significantly 
+
+
+
+
+
+
+
+
+## 7. Conclusions
+In the report.
+
+## 8. Self Reflectance
+* Total Hours Spent on this project is about 13 hours.
+* We find it very useful to view children with ECC (Erken Cocukluk Curukleri) for motivation.
+* We partitioned the project in a cascaded fashion. That means each chapter is assigned to a person. This allowed us to work in a parallel setup, however it makes harder to work remotely.
+
+
+## 8. References
+1. The ECC paper
+2. stackoverflow.com
+3. r-bloggers.com
+4. analyticsvidhya.com
+
+
