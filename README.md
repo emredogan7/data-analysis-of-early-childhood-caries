@@ -4,8 +4,7 @@ This repository includes the data analysis of the dataset 'Early Childhood Carie
 
 ***************************************************************************************
 * 'IS580 Project Report.pdf' includes all the necessary information, comparison and conclusion.
-* 'IS580Project.Rmd' includes all the necessary code, plot etc.
-* 'IS580Project.html' is the html form of the .Rmd file.
+* 'IS580Project.Rmd' is the R Markdown file of the project. 
 * 'Workspace.RData' includes the workspace of our project.
 
 ***************************************************************************************
